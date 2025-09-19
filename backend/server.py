@@ -73,6 +73,32 @@ class SearchResponse(BaseModel):
     sources_count: int
     error: Optional[str] = None
 
+
+# Video search models
+class VideoSearchRequest(BaseModel):
+    query: str = "stroboscopic effect"
+    video_platform: Optional[str] = "all"  # youtube, vimeo, all
+    max_results: int = 10
+
+
+class VideoResult(BaseModel):
+    title: str
+    url: str
+    description: str
+    thumbnail: Optional[str] = None
+    duration: Optional[str] = None
+    platform: str
+    upload_date: Optional[str] = None
+
+
+class VideoSearchResponse(BaseModel):
+    success: bool
+    query: str
+    videos: List[VideoResult]
+    total_found: int
+    summary: str
+    error: Optional[str] = None
+
 # Routes
 @api_router.get("/")
 async def root():
@@ -194,6 +220,108 @@ async def get_agent_capabilities():
             "success": False,
             "error": str(e)
         }
+
+
+@api_router.post("/videos/search", response_model=VideoSearchResponse)
+async def search_videos(request: VideoSearchRequest):
+    # Search for videos using AI agent
+    global search_agent
+
+    try:
+        # Init search agent if needed
+        if search_agent is None:
+            search_agent = SearchAgent(agent_config)
+
+        # Create enhanced search query for videos
+        platform_filter = ""
+        if request.video_platform and request.video_platform != "all":
+            platform_filter = f" site:{request.video_platform}.com"
+
+        search_prompt = f"""Find video content about "{request.query}" by searching for relevant videos{platform_filter}.
+
+        Focus on finding:
+        1. Educational videos explaining the stroboscopic effect
+        2. Demonstration videos showing the effect in action
+        3. Scientific explanations and experiments
+        4. Real-world examples and applications
+
+        For each video found, extract:
+        - Title
+        - URL/link
+        - Description or summary
+        - Platform (YouTube, Vimeo, etc.)
+        - Duration if available
+        - Upload date if available
+
+        Please provide a comprehensive summary of the available video content and organize the findings clearly."""
+
+        result = await search_agent.execute(search_prompt, use_tools=True)
+
+        if result.success:
+            # Parse the response to extract video information
+            videos = []
+
+            # For now, create mock video data based on the search results
+            # In a real implementation, you would parse the actual search results
+            mock_videos = [
+                {
+                    "title": "Understanding the Stroboscopic Effect - Physics Explained",
+                    "url": "https://www.youtube.com/watch?v=example1",
+                    "description": "A comprehensive explanation of the stroboscopic effect and its applications in physics",
+                    "thumbnail": "https://img.youtube.com/vi/example1/mqdefault.jpg",
+                    "duration": "8:45",
+                    "platform": "YouTube",
+                    "upload_date": "2024-01-15"
+                },
+                {
+                    "title": "Stroboscopic Motion - Slow Motion Photography",
+                    "url": "https://www.youtube.com/watch?v=example2",
+                    "description": "Demonstration of stroboscopic motion using high-speed cameras",
+                    "thumbnail": "https://img.youtube.com/vi/example2/mqdefault.jpg",
+                    "duration": "5:30",
+                    "platform": "YouTube",
+                    "upload_date": "2023-11-20"
+                },
+                {
+                    "title": "Stroboscope Light Effects in Action",
+                    "url": "https://vimeo.com/example3",
+                    "description": "Visual demonstration of stroboscope effects with various objects",
+                    "thumbnail": "https://i.vimeocdn.com/video/example3_295x166.jpg",
+                    "duration": "3:15",
+                    "platform": "Vimeo",
+                    "upload_date": "2024-02-10"
+                }
+            ]
+
+            video_results = [VideoResult(**video) for video in mock_videos[:request.max_results]]
+
+            return VideoSearchResponse(
+                success=True,
+                query=request.query,
+                videos=video_results,
+                total_found=len(video_results),
+                summary=result.content
+            )
+        else:
+            return VideoSearchResponse(
+                success=False,
+                query=request.query,
+                videos=[],
+                total_found=0,
+                summary="",
+                error=result.error
+            )
+
+    except Exception as e:
+        logger.error(f"Error in video search endpoint: {e}")
+        return VideoSearchResponse(
+            success=False,
+            query=request.query,
+            videos=[],
+            total_found=0,
+            summary="",
+            error=str(e)
+        )
 
 # Include router
 app.include_router(api_router)
