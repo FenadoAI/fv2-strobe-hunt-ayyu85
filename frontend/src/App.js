@@ -28,9 +28,14 @@ const Home = () => {
       });
 
       if (response.data.success) {
-        setVideos(response.data.videos);
-        setSummary(response.data.summary);
-        setTotalFound(response.data.total_found);
+        setVideos(response.data.videos || []);
+        setSummary(response.data.summary || "");
+        setTotalFound(response.data.total_found || 0);
+      } else {
+        console.error("Search failed:", response.data.error);
+        setVideos([]);
+        setSummary("");
+        setTotalFound(0);
       }
     } catch (error) {
       console.error("Error searching videos:", error);
@@ -48,64 +53,93 @@ const Home = () => {
     searchVideos();
   };
 
-  const VideoCard = ({ video }) => (
-    <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 group">
-      <div className="relative">
-        <img
-          src={video.thumbnail || "https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=600&h=400&fit=crop"}
-          alt={video.title}
-          className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
-        />
-        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-300" />
-        <Button
-          size="icon"
-          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          onClick={() => window.open(video.url, '_blank')}
-        >
-          <Play className="h-6 w-6" />
-        </Button>
-      </div>
-      <CardHeader>
-        <div className="flex justify-between items-start gap-2">
-          <CardTitle className="text-lg line-clamp-2 group-hover:text-primary transition-colors">
-            {video.title}
-          </CardTitle>
-          <Badge variant="secondary" className="shrink-0">
-            {video.platform}
-          </Badge>
-        </div>
-        <CardDescription className="line-clamp-3">
-          {video.description}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          {video.duration && (
-            <div className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              {video.duration}
+  const VideoCard = ({ video }) => {
+    const [imageError, setImageError] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
+
+    const handleImageError = () => {
+      setImageError(true);
+    };
+
+    const handleImageLoad = () => {
+      setImageLoaded(true);
+    };
+
+    const getThumbnailUrl = () => {
+      if (imageError || !video.thumbnail) {
+        return "https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=600&h=400&fit=crop";
+      }
+      return video.thumbnail;
+    };
+
+    return (
+      <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 group bg-white/5 backdrop-blur-sm border-white/10">
+        <div className="relative">
+          {!imageLoaded && (
+            <div className="w-full h-48 bg-gray-800 animate-pulse flex items-center justify-center">
+              <div className="text-gray-500">Loading...</div>
             </div>
           )}
-          {video.upload_date && (
-            <div className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              {new Date(video.upload_date).toLocaleDateString()}
-            </div>
-          )}
+          <img
+            src={getThumbnailUrl()}
+            alt={video.title}
+            className={`w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300 ${
+              !imageLoaded ? 'opacity-0' : 'opacity-100'
+            }`}
+            onError={handleImageError}
+            onLoad={handleImageLoad}
+          />
+          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-300" />
+          <Button
+            size="icon"
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white/20 backdrop-blur-sm hover:bg-white/30"
+            onClick={() => window.open(video.url, '_blank')}
+          >
+            <Play className="h-6 w-6 text-white" />
+          </Button>
         </div>
-      </CardContent>
-      <CardFooter>
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => window.open(video.url, '_blank')}
-        >
-          <ExternalLink className="h-4 w-4 mr-2" />
-          Watch Video
-        </Button>
-      </CardFooter>
-    </Card>
-  );
+        <CardHeader>
+          <div className="flex justify-between items-start gap-2">
+            <CardTitle className="text-lg line-clamp-2 group-hover:text-purple-400 transition-colors text-white">
+              {video.title}
+            </CardTitle>
+            <Badge variant="secondary" className="shrink-0 bg-purple-600/20 text-purple-300 border-purple-500/30">
+              {video.platform}
+            </Badge>
+          </div>
+          <CardDescription className="line-clamp-3 text-gray-300">
+            {video.description}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4 text-sm text-gray-400">
+            {video.duration && (
+              <div className="flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                {video.duration}
+              </div>
+            )}
+            {video.upload_date && (
+              <div className="flex items-center gap-1">
+                <Calendar className="h-4 w-4" />
+                {new Date(video.upload_date).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button
+            variant="outline"
+            className="w-full border-white/20 text-white hover:bg-white/10 hover:text-purple-300"
+            onClick={() => window.open(video.url, '_blank')}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Watch Video
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -179,19 +213,19 @@ const Home = () => {
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
-              <Card key={i} className="animate-pulse">
-                <div className="h-48 bg-gray-300 rounded-t-lg"></div>
+              <Card key={i} className="animate-pulse bg-white/5 backdrop-blur-sm border-white/10">
+                <div className="h-48 bg-gray-700 rounded-t-lg"></div>
                 <CardHeader>
-                  <div className="h-4 bg-gray-300 rounded w-3/4"></div>
-                  <div className="h-3 bg-gray-300 rounded w-1/2"></div>
+                  <div className="h-4 bg-gray-600 rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-gray-600 rounded w-1/2"></div>
                 </CardHeader>
               </Card>
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {videos.map((video, index) => (
-              <VideoCard key={index} video={video} />
+              <VideoCard key={`${video.url}-${index}`} video={video} />
             ))}
           </div>
         )}

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
 from datetime import datetime
+import asyncio
 
 # AI agents
 from ai_agents.agents import AgentConfig, SearchAgent, ChatAgent
@@ -224,7 +225,7 @@ async def get_agent_capabilities():
 
 @api_router.post("/videos/search", response_model=VideoSearchResponse)
 async def search_videos(request: VideoSearchRequest):
-    # Search for videos using AI agent
+    # Search for videos using AI agent with real video search
     global search_agent
 
     try:
@@ -237,70 +238,114 @@ async def search_videos(request: VideoSearchRequest):
         if request.video_platform and request.video_platform != "all":
             platform_filter = f" site:{request.video_platform}.com"
 
-        search_prompt = f"""Find video content about "{request.query}" by searching for relevant videos{platform_filter}.
+        search_prompt = f"""Quick search for "{request.query}" videos. Find REAL YouTube URLs only.
+        Return actual video URLs in format: https://www.youtube.com/watch?v=VIDEO_ID
+        Be concise - I need working links quickly."""
 
-        Focus on finding:
-        1. Educational videos explaining the stroboscopic effect
-        2. Demonstration videos showing the effect in action
-        3. Scientific explanations and experiments
-        4. Real-world examples and applications
-
-        For each video found, extract:
-        - Title
-        - URL/link
-        - Description or summary
-        - Platform (YouTube, Vimeo, etc.)
-        - Duration if available
-        - Upload date if available
-
-        Please provide a comprehensive summary of the available video content and organize the findings clearly."""
-
-        result = await search_agent.execute(search_prompt, use_tools=True)
+        # Add timeout to search
+        try:
+            result = await asyncio.wait_for(
+                search_agent.execute(search_prompt, use_tools=True),
+                timeout=45.0  # 45 second timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Search timed out for query: {request.query}")
+            return VideoSearchResponse(
+                success=False,
+                query=request.query,
+                videos=[],
+                total_found=0,
+                summary="Search timed out - please try a different query",
+                error="Search timeout"
+            )
 
         if result.success:
-            # Parse the response to extract video information
+            # Parse the AI response to extract video information
             videos = []
 
-            # For now, create mock video data based on the search results
-            # In a real implementation, you would parse the actual search results
-            mock_videos = [
-                {
-                    "title": "Understanding the Stroboscopic Effect - Physics Explained",
-                    "url": "https://www.youtube.com/watch?v=example1",
-                    "description": "A comprehensive explanation of the stroboscopic effect and its applications in physics",
-                    "thumbnail": "https://img.youtube.com/vi/example1/mqdefault.jpg",
-                    "duration": "8:45",
-                    "platform": "YouTube",
-                    "upload_date": "2024-01-15"
-                },
-                {
-                    "title": "Stroboscopic Motion - Slow Motion Photography",
-                    "url": "https://www.youtube.com/watch?v=example2",
-                    "description": "Demonstration of stroboscopic motion using high-speed cameras",
-                    "thumbnail": "https://img.youtube.com/vi/example2/mqdefault.jpg",
-                    "duration": "5:30",
-                    "platform": "YouTube",
-                    "upload_date": "2023-11-20"
-                },
-                {
-                    "title": "Stroboscope Light Effects in Action",
-                    "url": "https://vimeo.com/example3",
-                    "description": "Visual demonstration of stroboscope effects with various objects",
-                    "thumbnail": "https://i.vimeocdn.com/video/example3_295x166.jpg",
-                    "duration": "3:15",
-                    "platform": "Vimeo",
-                    "upload_date": "2024-02-10"
-                }
-            ]
+            # Try to extract structured video data from the search results
+            # This is a basic implementation - in production you'd use more sophisticated parsing
+            response_text = result.content.lower()
 
-            video_results = [VideoResult(**video) for video in mock_videos[:request.max_results]]
+            # Look for video URLs in the response
+            import re
+
+            # Find YouTube URLs
+            youtube_urls = re.findall(r'https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+)', result.content)
+
+            # Find Vimeo URLs
+            vimeo_urls = re.findall(r'https?://(?:www\.)?vimeo\.com/(\d+)', result.content)
+
+            # Create structured video data from found URLs
+            video_count = 0
+
+            # Extract titles from the response text
+            title_patterns = []
+            lines = result.content.split('\n')
+            for line in lines:
+                if 'youtube.com/watch?v=' in line and any(word in line.lower() for word in ['title', '**', '*', '-']):
+                    title_patterns.append(line.strip('* -:').strip())
+
+            for i, video_id in enumerate(youtube_urls[:request.max_results]):
+                if video_count >= request.max_results:
+                    break
+
+                # Try to extract title from the search results
+                title = f"Educational Video: {request.query.title()}"
+                if i < len(title_patterns):
+                    # Clean up the title from the AI response
+                    extracted_title = title_patterns[i].split('by')[0].split(':')[0].strip('*').strip()
+                    if extracted_title and len(extracted_title) > 10:
+                        title = extracted_title
+
+                videos.append(VideoResult(
+                    title=title,
+                    url=f"https://www.youtube.com/watch?v={video_id}",
+                    description=f"Real educational video about {request.query} discovered through AI search",
+                    thumbnail=f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg",
+                    platform="YouTube",
+                    duration=None,
+                    upload_date=None
+                ))
+                video_count += 1
+
+            for video_id in vimeo_urls[:max(0, request.max_results - video_count)]:
+                if video_count >= request.max_results:
+                    break
+
+                videos.append(VideoResult(
+                    title=f"Video about {request.query} - Real Content",
+                    url=f"https://vimeo.com/{video_id}",
+                    description=f"Educational content about {request.query} found through AI search",
+                    thumbnail="https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=600&h=400&fit=crop",
+                    platform="Vimeo",
+                    duration=None,
+                    upload_date=None
+                ))
+                video_count += 1
+
+            # If no URLs found, create a structured response based on search content
+            if not videos:
+                # Fallback: create entries based on search results but with real search-based info
+                videos = [
+                    VideoResult(
+                        title=f"Search Results: {request.query}",
+                        url=f"https://www.youtube.com/results?search_query={request.query.replace(' ', '+')}",
+                        description=f"Search results for {request.query} based on AI analysis",
+                        thumbnail="https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=600&h=400&fit=crop",
+                        platform="YouTube Search",
+                        duration=None,
+                        upload_date=None
+                    )
+                ]
 
             return VideoSearchResponse(
                 success=True,
                 query=request.query,
-                videos=video_results,
-                total_found=len(video_results),
-                summary=result.content
+                videos=videos,
+                total_found=len(videos),
+                summary=result.content,
+                error=None
             )
         else:
             return VideoSearchResponse(
@@ -308,7 +353,7 @@ async def search_videos(request: VideoSearchRequest):
                 query=request.query,
                 videos=[],
                 total_found=0,
-                summary="",
+                summary="Search failed",
                 error=result.error
             )
 
@@ -319,7 +364,7 @@ async def search_videos(request: VideoSearchRequest):
             query=request.query,
             videos=[],
             total_found=0,
-            summary="",
+            summary="Search error occurred",
             error=str(e)
         )
 
